@@ -19,11 +19,20 @@ load_dotenv()
 # Config
 # -------------------------
 DEVICE_ID = os.getenv("DEVICE_ID", "pi01")
+
 PUBNUB_PUBLISH_KEY = os.getenv("PUBNUB_PUBLISH_KEY")
 PUBNUB_SUBSCRIBE_KEY = os.getenv("PUBNUB_SUBSCRIBE_KEY")
+PUBNUB_DEVICE_TOKEN = os.getenv("PUBNUB_DEVICE_TOKEN")
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://192.168.1.8:5000/api/upload")
-UPLOAD_TOKEN = os.getenv("UPLOAD_TOKEN", "change_me_token")
+BACKEND_URL = os.getenv(
+    "BACKEND_URL",
+    "https://vigil.website/api/upload"
+)
+
+UPLOAD_TOKEN = os.getenv(
+    "UPLOAD_TOKEN",
+    "change_me_token"
+)
 
 PIR_PIN = 17
 BUZZER_PIN = 21
@@ -75,11 +84,11 @@ def take_photo(path):
 
 
 def upload_photo(path):
-    with open(path, "rb") as f:
+    with open(path, "rb") as fp:
         r = requests.post(
             BACKEND_URL,
             headers={"X-Upload-Token": UPLOAD_TOKEN},
-            files={"file": f},
+            files={"file": (os.path.basename(path), fp, "image/jpeg")},
             timeout=20
         )
     print("Upload:", r.status_code, r.text)
@@ -94,7 +103,13 @@ def pubnub_client():
     pnconfig.publish_key = PUBNUB_PUBLISH_KEY
     pnconfig.subscribe_key = PUBNUB_SUBSCRIBE_KEY
     pnconfig.uuid = f"device-{DEVICE_ID}"
-    return PubNub(pnconfig)
+
+    pubnub = PubNub(pnconfig)
+
+    if PUBNUB_DEVICE_TOKEN:
+        pubnub.set_token(PUBNUB_DEVICE_TOKEN)
+
+    return pubnub
 
 
 pubnub = pubnub_client()
