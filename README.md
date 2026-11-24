@@ -1,199 +1,52 @@
-# IoT Security Device – Raspberry Pi (Vigil)
+# Vigil device (Raspberry Pi)
 
-This repository contains the software and hardware configuration for the Raspberry Pi used as the IoT device in the Vigil IoT Security Monitoring System.
+This is the code that runs on the Raspberry Pi in Vigil, the home security system I built on my own for the IoT Development module in third year at DkIT. The Pi watches a room with a motion sensor, sounds a buzzer, takes photos and sends everything to the web app. The web app and the dashboard are in [iot-security-web](https://github.com/hypzx2105/iot-security-web).
 
-The Raspberry Pi acts as a standalone security device responsible for detecting motion, capturing evidence, triggering alarms, and communicating securely with a cloud-hosted backend using PubNub and HTTPS.
+![Wiring diagram](docs/fritzing-diagram.png)
 
-This repository represents the IoT hardware and device-side software component of the overall system.
+## Hardware
 
----
+| Part | Connection |
+|---|---|
+| Raspberry Pi 4 | Main board |
+| PIR motion sensor | OUT to GPIO 17 (pin 11), powered from the 5V and GND rails |
+| Active buzzer | Driven by a 2N2222 NPN transistor with a 1kΩ resistor on the base |
+| Pi camera module | CSI ribbon cable |
 
-## Device Overview
+In the code the transistor for the buzzer is on GPIO 21 (pin 40). The diagram still shows GPIO 18, which is where I had it at first.
 
-The Raspberry Pi operates as an autonomous IoT security node with the following responsibilities:
+## How it works
 
-- Monitor motion using a PIR sensor
-- Automatically capture images when motion is detected
-- Trigger an audible alarm using a buzzer
-- Upload captured images securely to the backend
-- Publish real-time events to the cloud using PubNub
-- Listen for remote commands (ARM / DISARM) from the web application
-- Operate continuously without exposing any inbound network services
+security_device.py is the main program and it runs three things at the same time. The main loop reads the PIR sensor every 0.2 seconds. When it sees motion and the system is armed, it publishes motion_detected to PubNub and adds a job to a queue. A camera thread takes the jobs from that queue, sounds the buzzer, takes a burst of photos with rpicam-still and uploads each one to the server with an HTTPS POST and the X-Upload-Token header. I used a queue so the sensor loop never waits for the camera or the network. There is also a 10 second cooldown so the same movement doesn't trigger it again and again.
 
----
+The third thread listens to the PubNub command channel. These are the commands the Pi understands:
 
-## Hardware Components
+| Command | What it does |
+|---|---|
+| ARM | Turns motion monitoring on |
+| DISARM | Turns it off and cancels a capture that is running |
+| SIREN_ON / SIREN_OFF | Turns the buzzer on or off from the dashboard |
+| TAKE_PHOTO | Takes one photo on demand (only when armed) |
+| STATUS | Sends back if it is armed, if the siren is on and how many jobs are waiting |
 
-The following hardware components are used:
+pir_siren_alarm.py is a smaller script that only tests the sensor and the siren, without the camera or the cloud.
 
-- Raspberry Pi (Model 4)
-- PIR Motion Sensor (GPIO input)
-- Raspberry Pi Camera Module (CSI interface)
-- Active Buzzer
-- NPN Transistor (2N2222)
-- Resistor (1kΩ)
-- Breadboard and jumper wires
+## Security
 
----
+The Pi doesn't run a web server and doesn't open any port, it only makes outgoing connections. It publishes to vigil_evt_pi01 and listens on vigil_cmd_pi01, and its PubNub token only allows those two channels. The photos go to the server over HTTPS and the server rejects any upload without the right token. All keys and tokens are read from a .env file that is not in the repository.
 
-## Hardware Wiring Diagram (Fritzing)
+## Running it
 
-The diagram below shows the physical wiring of the Raspberry Pi, PIR sensor, buzzer circuit, and camera module.
+On a Raspberry Pi with the camera enabled:
 
-![Raspberry Pi IoT Device Wiring Diagram](docs/fritzing-diagram.png)
-
-Key connections:
-
-- PIR sensor OUT pin connected to GPIO 17
-- PIR sensor powered via 5V and GND rails
-- Buzzer driven through an NPN transistor controlled by GPIO 18
-- Camera connected via CSI ribbon cable to the Raspberry Pi camera port
-
----
-
-## Technologies Used
-
-### Software
-
-- Python 3
-- PubNub Python SDK
-- Requests (HTTP client)
-- RPi.GPIO
-- dotenv (environment variable loading)
-
-### Communication
-
-- PubNub Publish/Subscribe
-- PubNub Access Manager (PAM)
-- HTTPS (TLS)
-
----
-
-## Device Responsibilities
-
-The Raspberry Pi performs the following functions:
-
-- Detects motion using a PIR sensor connected to GPIO
-- Captures images using the Raspberry Pi camera
-- Triggers an alarm via a buzzer when motion is detected
-- Uploads images to the backend using HTTPS POST requests
-- Publishes events such as:
-  - motion_detected
-  - photo_uploaded
-  - photos_uploaded
-  - device_online
-- Subscribes to command messages from the backend
-- Executes commands such as ARM and DISARM in real time
-
----
-
-## PubNub Communication
-
-PubNub is used as the real-time messaging layer between the IoT device and the cloud backend.
-
-- Each device is identified using a unique DEVICE_ID
-- The device subscribes to a command channel:
-  vigil_cmd_<device_id>
-- The device publishes events to:
-  vigil_evt_<device_id>
-- PubNub Access Manager (PAM) tokens are used to restrict:
-  - Which channels the device can publish to
-  - Which channels the device can subscribe to
-- All PubNub traffic is encrypted using TLS
-
-This ensures that only authorized devices and servers can exchange messages.
-
----
-
-## Backend Communication
-
-In addition to PubNub messaging, the device communicates with the backend using HTTPS.
-
-- Images are uploaded using HTTPS POST requests
-- Upload requests require a valid X-Upload-Token header
-- A heartbeat endpoint is used to signal device availability
-- No inbound ports are opened on the Raspberry Pi
-
-All communication is outbound-only.
-
----
-
-## Security Considerations
-
-Security was a core design requirement for the IoT device.
-
-### Device Security
-
-- No web server runs on the Raspberry Pi
-- No inbound ports are exposed
-- The device communicates outbound-only
-- The device is bound to a unique DEVICE_ID
-
-### Secret Management
-
-- All secrets are stored in a local .env file
-- No credentials or tokens are hardcoded
-- The .env file is excluded from version control
-
-### Communication Security
-
-- HTTPS is used for all backend communication
-- PubNub channels are protected using PAM tokens
-- Unauthorized publish or subscribe attempts are rejected
-
----
-
-## Configuration
-
-The device is configured using environment variables stored in a `.env` file.
-
-Required variables:
-
-- DEVICE_ID
-- PUBNUB_PUBLISH_KEY
-- PUBNUB_SUBSCRIBE_KEY
-- PUBNUB_DEVICE_TOKEN
-- BACKEND_URL
-- UPLOAD_TOKEN
-
-Example `.env` values are documented but not committed to the repository.
-
----
-
-## Running the Device
-
-Activate the virtual environment:
-
-```bash
-source .venv/bin/activate
 ```
-##Run the device application:
-
-```bash
-python3 security_device.py
+git clone https://github.com/hypzx2105/iot-security-device.git
+cd iot-security-device
+pip install -r requirements.txt
+cp .env.example .env
+python security_device.py
 ```
 
-##When running, the device will:
+Put your PubNub keys, the device token, the backend URL and the upload token in .env. The PIR sensor needs about 30 seconds to warm up before the system is ready.
 
-- Connect to PubNub
-
-- Announce its online status
-
-- Begin monitoring for motion events
-
-- Respond to ARM and DISARM commands
-
-- Upload evidence automatically when motion is detected
-
-The device is designed to run continuously. It can optionally be configured as a systemd service for automatic startup.
-
-Role in the Overall System
-This repository represents the IoT device portion of the Vigil system.
-
-The web application and database are hosted separately on AWS
-
-The Raspberry Pi focuses exclusively on sensing, actuation, and secure communication
-
-All control and monitoring is performed remotely via the web dashboard
-
-Together, the device and backend form a complete, secure, cloud-connected IoT security system.
+Iker Arza, DkIT, BSc in Computing in Software Development
